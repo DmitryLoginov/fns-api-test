@@ -1,7 +1,6 @@
 package dev.d25;
 
 import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 
@@ -12,18 +11,17 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
 
-
 public class Program {
-    public static void main(String[] args) throws IOException, InterruptedException {
-        Set<Long> ogrns = new HashSet<>();
+    public static void main(String[] args) throws IOException {
+        Set<String> inns = new LinkedHashSet<>();
 
         try (BufferedReader reader = new BufferedReader(new FileReader("input.txt"))) {
-
+            System.out.println("Чтение ИНН...");
 
             while (reader.ready()) {
                 String line = reader.readLine();
-                //System.out.println(line);
-                ogrns.add(Long.parseLong(line.trim()));
+                System.out.println("\tИНН: " + line);
+                inns.add(line.trim());
             }
         } catch (FileNotFoundException ex) {
             System.out.println("Файл input.txt не найден");
@@ -33,9 +31,9 @@ public class Program {
             System.out.println(ex.getMessage());
             System.out.println(Arrays.toString(ex.getStackTrace()));
             return;
-        } catch (NumberFormatException ex) {
+        /*} catch (NumberFormatException ex) {
             System.out.println("Ошибка при парсинге String в Long");
-            return;
+            return;*/
         } catch (Exception ex) {
             System.out.println("Непредвиденная ошибка:");
             System.out.println(ex.getMessage());
@@ -43,36 +41,35 @@ public class Program {
             return;
         }
 
-        if (ogrns.isEmpty()) {
-            System.out.println("Список ОГРН пуст");
+        if (inns.isEmpty()) {
+            System.out.println("Список ИНН пуст");
             return;
         }
 
-        System.out.println("прочитаны ОГРН");
+        System.out.println("ИНН прочитаны");
 
+        System.out.println("Создание HTTP-клиента");
         URI baseUri = URI.create("https://egrul.itsoft.ru/");
-        Map<Long, String> map = new HashMap<>();
-
         HttpClient client = HttpClient.newHttpClient();
-
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder();
         HttpResponse.BodyHandler<String> handler = HttpResponse.BodyHandlers.ofString();
 
-        System.out.println("создан клиент");
+        Map<String, String> map = new HashMap<>();
 
-        for (Long ogrn : ogrns) {
+        System.out.println("Запрос ОГРН...");
+
+        for (String inn : inns) {
+            System.out.println("\tИНН: " + inn);
+
             HttpRequest request = requestBuilder
                     .GET()
-                    .uri(baseUri.resolve(ogrn.toString() + ".json"))
+                    .uri(baseUri.resolve(inn + ".json"))
                     .version(HttpClient.Version.HTTP_1_1)
                     .header("Accept", "text/html")
                     .build();
 
-            System.out.println("отправлен запрос");
-
             try {
                 HttpResponse<String> response = client.send(request, handler);
-
                 int status = response.statusCode();
 
                 if (status < 200 || status > 299) {
@@ -83,15 +80,24 @@ public class Program {
                 JsonElement jsonElement = JsonParser.parseString(response.body());
 
                 if (jsonElement.isJsonObject()) {
-                    JsonObject jsonObject = jsonElement.getAsJsonObject();
+                    JsonElement svul = jsonElement.getAsJsonObject().get("СвЮЛ");
 
-                    JsonElement svul = jsonObject.get("СвЮЛ");
-                    JsonObject attributes = svul.getAsJsonObject().get("@attributes").getAsJsonObject();
-                    String inn = attributes.get("ИНН").getAsString();
+                    if (svul.isJsonObject()) {
+                        JsonElement attributes = svul.getAsJsonObject().get("@attributes");
 
-                    map.put(ogrn, inn);
+                        if (attributes.isJsonObject()) {
+                            String ogrn = attributes.getAsJsonObject().get("ОГРН").getAsString();
+
+                            System.out.println("\t\tОГРН: " + ogrn);
+                            map.put(inn, ogrn);
+                        } else {
+                            System.out.println("Формат JSON не соответствует ожидаемому");
+                        }
+                    } else {
+                        System.out.println("Формат JSON не соответствует ожидаемому");
+                    }
                 } else {
-                    System.out.println("Ошибка при парсинге JSON");
+                    System.out.println("Формат JSON не соответствует ожидаемому");
                 }
             } catch (JsonSyntaxException ex) {
                 System.out.println("Ошибка при парсинге JSON: ");
@@ -103,16 +109,18 @@ public class Program {
             }
         }
 
-        System.out.println("обработка завершена");
+        System.out.println("Обработка завершена");
+        System.out.println("Закрытие HTTP-клиента");
+        client.close();
 
         Writer fileWriter = new FileWriter("output.csv");
 
         for (var entry : map.entrySet()) {
-            fileWriter.write(String.format("%d;%s", entry.getKey(), entry.getValue()));
+            fileWriter.write(String.format("%s;%s\n", entry.getKey(), entry.getValue()));
         }
 
         fileWriter.close();
 
-        System.out.println("файл сохранен");
+        System.out.println("ИНН записаны в файл");
     }
 }
